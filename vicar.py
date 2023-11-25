@@ -17,10 +17,6 @@
 #   the raw VICAR header, and the raw VICAR extension header, from input files.
 # 9/19/13 MRS - added method get_values().
 # 12/29/19 MRS - compatible with Python 3 as well as Python 2.
-# 12/30/21 MRS - added __contains__, option for dealing with extraneous trailing
-#   bytes in Galileo SSI files.
-# 8/17/22 MRS - added capability to read binary files in Vax floating-point
-#   format.
 ################################################################################
 
 import numpy as np
@@ -28,8 +24,6 @@ import re
 import sys
 import decimal as dec
 import numbers
-import warnings
-import vax
 
 ################################################################################
 # VicarImage class
@@ -82,7 +76,7 @@ class VicarImage():
 
     Restrictions:
         - The TYPE must always be "IMAGE".
-        - The library cannot write files containing VAX reals.
+        - The library cannot read or write files containing VAX reals.
         - The number of prefix bytes must be a multiple of the array element
           size.
         - The NumPy dtype of the binary header array will be the same as that
@@ -129,7 +123,7 @@ class VicarImage():
     # returned by sys.byteorder
     SYS_BYTEORDER_DICT = { "little" : ("LOW" , "RIEEE"),
                            "big"    : ("HIGH", "IEEE" ) }
-
+ 
     # These are the byteorders returned by numpy.dtype.byteorder
     INTFMT_REALFMT_DICT = { "<" : ("LOW" , "RIEEE"),
                             ">" : ("HIGH", "IEEE" ),
@@ -191,7 +185,7 @@ class VicarImage():
         """The constructor for a VicarImage object. It takes no arguments and
         returns an empty header.
         """
-
+ 
         # This contains the data as a numpy ndarray
         self.data_2d = None
         self.data_3d = None
@@ -235,199 +229,166 @@ class VicarImage():
     ############################################################################
 
     @staticmethod
-    def from_file(filename, extraneous='error'):
+    def from_file(filename):
         """Returns a VicarImage object given the name of an existing VICAR file.
-
+    
         Inputs:
             filename        the name of the file to load.
-            extraneous      how to handle extraneous bytes in the file:
-                            'error' to raise ValueError;
-                            'warn' to raise a UserWarning;
-                            'print' to print a message;
-                            'ignore' to ignore.
 
         Return:             a VicarImage object.
         """
-
-        if extraneous not in ('error', 'warn', 'print', 'ignore'):
-            raise ValueError('unrecognized value for extraneous option: ' +
-                             extraneous)
 
         # Create the object
         this = VicarImage()
         this.is_from_file = True    # Remember that this file was read
 
         # Open the file for binary read
-        with open(filename, "rb") as file:
+        file = open(filename, "rb")
 
-            # Read the beginning of the VICAR file to get the label size
-            file.seek(0)
-            header = str(file.read(40).decode('latin1'))        # Python 2 and 3
+        # Read the beginning of the VICAR file to get the label size
+        file.seek(0)
+        header = str(file.read(40).decode('latin1'))            # Python 2 and 3
 
-            if header[0:8] != "LBLSIZE=":
-                raise VicarError("Missing LBLSIZE keyword, file: " + filename)
+        if header[0:8] != "LBLSIZE=":
+            raise VicarError("Missing LBLSIZE keyword, file: " + filename)
 
-            iblank = header.index(" ", 8)
-            vicar_LBLSIZE = int(header[8:iblank])
-            this.header_lblsize = vicar_LBLSIZE
+        iblank = header.index(" ", 8)
+        vicar_LBLSIZE = int(header[8:iblank])
+        this.header_lblsize = vicar_LBLSIZE
 
-            # Read the leading VICAR header
-            file.seek(0)
-            this.header_bytes = file.read(vicar_LBLSIZE)
+        # Read the leading VICAR header
+        file.seek(0)
+        this.header_bytes = file.read(vicar_LBLSIZE)
 
-            this.header = str(this.header_bytes.rstrip(b"\0").decode('latin1'))
+        this.header = str(this.header_bytes.rstrip(b"\0").decode('latin1'))
                                                                 # Python 2 and 3
 
-            # Interpret the header
-            this._load_table(this.header)
+        # Interpret the header
+        this._load_table(this.header)
 
-            # Extract the basic VICAR file properties that we need
-            vicar_FORMAT   = this.get_value("FORMAT" )
-            vicar_TYPE     = this.get_value("TYPE"   )
-            vicar_EOL      = this.get_value("EOL"    )
-            vicar_RECSIZE  = this.get_value("RECSIZE")
-            vicar_ORG      = this.get_value("ORG"    , default="BSQ")
-            vicar_NL       = this.get_value("NL"     )
-            vicar_NS       = this.get_value("NS"     )
-            vicar_NB       = this.get_value("NB"     , default=1    )
-            vicar_N1       = this.get_value("N1"     )
-            vicar_N2       = this.get_value("N2"     )
-            vicar_N3       = this.get_value("N3"     )
-            vicar_NBB      = this.get_value("NBB"    , default=0    )
-            vicar_NLB      = this.get_value("NLB"    , default=0    )
-            vicar_INTFMT   = this.get_value("INTFMT" , default="LOW")
-            vicar_REALFMT  = this.get_value("REALFMT", default="VAX")
+        # Extract the basic VICAR file properties that we need
+        vicar_FORMAT   = this.get_value("FORMAT" )
+        vicar_TYPE     = this.get_value("TYPE"   )
+        vicar_EOL      = this.get_value("EOL"    )
+        vicar_RECSIZE  = this.get_value("RECSIZE")
+        vicar_ORG      = this.get_value("ORG"    , default="BSQ")
+        vicar_NL       = this.get_value("NL"     )
+        vicar_NS       = this.get_value("NS"     )     
+        vicar_NB       = this.get_value("NB"     , default=1    )
+        vicar_N1       = this.get_value("N1"     )
+        vicar_N2       = this.get_value("N2"     )
+        vicar_N3       = this.get_value("N3"     )
+        vicar_NBB      = this.get_value("NBB"    , default=0    )
+        vicar_NLB      = this.get_value("NLB"    , default=0    )
+        vicar_INTFMT   = this.get_value("INTFMT" , default="LOW")
+        vicar_REALFMT  = this.get_value("REALFMT", default="VAX")
 
-            # Interpret image properties
-            if vicar_TYPE != "IMAGE":
-                raise VicarError("VICAR file does not contain an image, file: "
+        # Interpret image properties
+        if vicar_TYPE != "IMAGE":
+            raise VicarError("VICAR file does not contain an image, file: "
+                             + filename)
+
+        # Append the extension header, if present, and re-load the table
+        this.extension_bytes = b""
+        this.extension_lblsize = 0
+        if vicar_EOL != 0:
+            offset = (vicar_LBLSIZE + vicar_RECSIZE * vicar_NLB
+                                    + vicar_RECSIZE * vicar_N2 * vicar_N3)
+            file.seek(offset)
+            temp = str(file.read(40).decode('latin1'))          # Python 2 and 3
+
+            # Sometime EOL = 1 but the file has no extension
+            if len(temp) == 0:
+                vicar_EOL = 0
+
+        if vicar_EOL != 0:
+            if temp[0:8] != "LBLSIZE=":
+                raise VicarError("Missing LBLSIZE keyword in extension, file: "
                                  + filename)
 
-            # Append the extension header, if present, and re-load the table
-            this.extension_bytes = b""
-            this.extension_lblsize = 0
-            if vicar_EOL != 0:
-                offset = (vicar_LBLSIZE + vicar_RECSIZE * vicar_NLB
-                                        + vicar_RECSIZE * vicar_N2 * vicar_N3)
-                file.seek(offset)
-                temp = str(file.read(40).decode('latin1'))      # Python 2 and 3
+            iblank = temp.index(" ",8)
+            this.extension_lblsize = int(temp[8:iblank])
 
-                # Sometime EOL = 1 but the file has no extension
-                if len(temp) == 0:
-                    vicar_EOL = 0
+            file.seek(offset)
+            this.extension_bytes = file.read(this.extension_lblsize)
 
-            if vicar_EOL != 0:
-                if temp[0:8] != "LBLSIZE=":
-                    raise VicarError("Missing LBLSIZE keyword in extension, "  +
-                                     "file: " + filename)
-
-                iblank = temp.index(" ",8)
-                this.extension_lblsize = int(temp[8:iblank])
-
-                file.seek(offset)
-                this.extension_bytes = file.read(this.extension_lblsize)
-
-                this.header += \
-                    str(this.extension_bytes.rstrip(b"\0").decode('latin1'))
+            this.header += \
+                str(this.extension_bytes.rstrip(b"\0").decode('latin1'))
                                                                 # Python 2 and 3
-                this._load_table(this.header)
+            this._load_table(this.header)
 
-            # Look up the numpy dtype corresponding to the VICAR FORMAT
-            dtypename = VicarImage.FORMAT_DICT[vicar_FORMAT]
+        # Look up the numpy dtype corresponding to the VICAR FORMAT
+        dtypename = VicarImage.FORMAT_DICT[vicar_FORMAT]
 
-            # Check the item size and kind
-            itemsize = np.dtype(dtypename).itemsize
-            kind = np.dtype(dtypename).kind
+        # Check the item size and kind
+        itemsize = np.dtype(dtypename).itemsize
+        kind = np.dtype(dtypename).kind
 
-            # Pre-pend the byte order character to the dtype name
-            vax_flag = False
-            if kind in ("i", "u"):
-                if itemsize > 1:
-                    if vicar_INTFMT == "LOW":
-                        dtypename = "<" + dtypename
-                    else:
-                        dtypename = ">" + dtypename
-            else:
-                if vicar_REALFMT == "IEEE":
+        # Pre-pend the byte order character to the dtype name
+        if kind in ("i", "u"):
+            if itemsize > 1:
+                if vicar_INTFMT == "LOW":
+                    dtypename = "<" + dtypename
+                else:
                     dtypename = ">" + dtypename
-                elif vicar_REALFMT == "RIEEE":
-                    dtypename = "<" + dtypename
-                elif vicar_REALFMT == "VAX":
-                    vax_flag = True
-                    dtypename = "<" + dtypename
-                    this.is_from_file = False
+        else:
+            if vicar_REALFMT == "IEEE":
+                dtypename = ">" + dtypename
+            elif vicar_REALFMT == "RIEEE":
+                dtypename = "<" + dtypename
+            else:
+                raise VicarError("VAX real format is not supported, file: "
+                                 + filename)
 
-            dtype = np.dtype(dtypename)
+        dtype = np.dtype(dtypename)
 
-            # Record size and prefix bytes must be multiples of the item size
-            if vicar_RECSIZE % itemsize != 0:
-                raise VicarError("RECSIZE must be a multiple of pixel size")
+        # Record size and prefix bytes must be multiples of the item size
+        if vicar_RECSIZE % itemsize != 0:
+            raise VicarError("RECSIZE must be a multiple of pixel size")
 
-            if vicar_NBB % itemsize != 0:
-                raise VicarError("Prefix size must be a multiple of pixel size")
+        if vicar_NBB % itemsize != 0:
+            raise VicarError("Prefix size must be a multiple of pixel size")
 
-            # Load the entire file as a 1-D array
-            file.seek(0)
-            vector = np.fromfile(file, dtype=dtype, sep="", count=-1)
+        # Load the entire file as a 1-D array
+        file.seek(0)
+        vector = np.fromfile(file, dtype=dtype, sep="", count=-1)
 
-            # Reshape into file records
-            samples = vicar_RECSIZE // itemsize
-            recs = vector.size // samples
-            try:
-                records = vector.reshape((recs, samples))
-            except ValueError:
-                if extraneous == 'error':
-                    raise
+        # Reshape into file records
+        samples = vicar_RECSIZE // itemsize
+        recs = vector.size // samples
+        records = vector.reshape((recs, samples))
 
-                records = vector[:recs*samples].reshape((recs, samples))
-                if extraneous in ('warn', 'print'):
-                    trailing = vector[recs*samples:]
-                    if np.all(trailing == 0):
-                        message = ('%s has %d zero-valued trailing items' %
-                                   (filename, len(trailing)))
-                    else:
-                        message = ('%s has %d trailing items' %
-                                   (filename, len(trailing)))
+        # Slice out the binary header
+        vicar_recs = vicar_LBLSIZE // vicar_RECSIZE
+        this.binary_header = records[vicar_recs : vicar_recs + vicar_NLB]
+        # Note that we assume BINTFMT == INTFMT. This is not checked.
 
-                    if extraneous == 'print':
-                        print(message)
-                    else:
-                        warnings.warn(message)
+        top_recs = vicar_recs + vicar_NLB
+        left_pix = vicar_NBB // itemsize
 
-            # Slice out the binary header
-            vicar_recs = vicar_LBLSIZE // vicar_RECSIZE
-            this.binary_header = records[vicar_recs : vicar_recs + vicar_NLB]
-            # Note that we assume BINTFMT == INTFMT. This is not checked.
+        data_recs = vicar_N2 * vicar_N3
+        this.prefix_2d = records[top_recs : top_recs + data_recs,
+                                          : left_pix]
 
-            top_recs = vicar_recs + vicar_NLB
-            left_pix = vicar_NBB // itemsize
+        this.data_2d = records[top_recs : top_recs + data_recs,
+                               left_pix : left_pix + vicar_N1]
 
-            data_recs = vicar_N2 * vicar_N3
-            this.prefix_2d = records[top_recs : top_recs + data_recs,
-                                              : left_pix]
+        # Reshape to separate the bands
+        this.data_3d = this.data_2d.reshape((vicar_N3, vicar_N2, vicar_N1))
+        this.prefix_3d = this.prefix_2d.reshape((vicar_N3, vicar_N2,
+                                                 this.prefix_2d.shape[-1]))
 
-            this.data_2d = records[top_recs : top_recs + data_recs,
-                                   left_pix : left_pix + vicar_N1]
+        # Re-position the band axis as first. The returned array is always
+        # ordered (bands, lines, samples).
+        if vicar_ORG == "BIP":
+            this.data_3d = this.data_3d.rollaxis(2,0)
+            this.prefix_3d = this.prefix_3d.rollaxis(2,0)
 
-            # Deal with Vax binary
-            if vax_flag:
-                this.set_array(vax.from_vax32(this.data_2d).copy())
+        elif vicar_ORG == "BIL":
+            this.data_3d = this.data_3d.rollaxis(1,0)
+            this.prefix_3d = this.prefix_3d.rollaxis(1,0)
 
-            # Reshape to separate the bands
-            this.data_3d = this.data_2d.reshape((vicar_N3, vicar_N2, vicar_N1))
-            this.prefix_3d = this.prefix_2d.reshape((vicar_N3, vicar_N2,
-                                                     this.prefix_2d.shape[-1]))
-
-            # Re-position the band axis as first. The returned array is always
-            # ordered (bands, lines, samples).
-            if vicar_ORG == "BIP":
-                this.data_3d = this.data_3d.rollaxis(2,0)
-                this.prefix_3d = this.prefix_3d.rollaxis(2,0)
-
-            elif vicar_ORG == "BIL":
-                this.data_3d = this.data_3d.rollaxis(1,0)
-                this.prefix_3d = this.prefix_3d.rollaxis(1,0)
-
+        file.close()
         return this
 
     @staticmethod
@@ -442,7 +403,7 @@ class VicarImage():
     @staticmethod
     def from_array(array):
         """Returns a VicarImage object given an array.
-
+    
         Inputs:
             array       the array containing the data to use in the VicarImage
                         object.
@@ -473,20 +434,21 @@ class VicarImage():
         """
 
         # Open the file for binary write
-        with open(filename, "wb") as file:
+        file = open(filename, "wb")
 
-            # Revise some VICAR header parameters if necessary
-            if self.is_from_file:
-                self.set_array(self.data_3d)
-                self.is_from_file = False
+        # Revise some VICAR header parameters if necessary
+        if self.is_from_file:
+            self.set_array(self.data_3d)
+            self.is_from_file = False
 
-            # Fill in any missing, required keywords
+        # Write the header
+        file.write(self.get_header().encode('ascii'))
 
-            # Write the header
-            file.write(self.get_header().encode('ascii'))
+        # Write the array
+        self.data_3d.tofile(file, sep="")
 
-            # Write the array
-            self.data_3d.tofile(file, sep="")
+        # Close file
+        file.close()
 
         return
 
@@ -543,18 +505,6 @@ class VicarImage():
 
         raise TypeError("Invalid index type")
 
-    def __contains__(self, key):
-        if isinstance(key, str):
-            return self.find_keyword(key) >= 0
-        if isinstance(key, numbers.Integral):
-            return key >= 0 and key < self.keyword_count()
-        if isinstance(key, (list,tuple)):
-            if len(key) != 2:
-                raise ValueError("Tuple must contain keyword and index")
-            return self.find_keyword(keyword=key[0], occurrence=key[1]) >= 0
-
-        raise TypeError("Invalid index type")
-
     def find_keyword(self, keyword=".*", occurrence=0, start=0):
         """Returns the index of a keyword in the VICAR header. Returns -1 if the
         keyword is not found.
@@ -586,22 +536,20 @@ class VicarImage():
             # Test this pattern
             k = self.table[i][0]
             test = pattern.match(k)
-            if test is None:
-                continue
+            if test is None: continue
 
             # If it matches the entire keyword...
             if test.end() == len(k):
                 found = found + 1
 
                 # And the occurrence is right, we're done
-                if found == occurrence:
-                    return i
+                if found == occurrence: return i
 
             # Otherwise, try again
-
+        
         # No match was found
         return -1
-
+        
     def keyword_index(self, keyword=".*", occurrence=0, start=0):
         """Returns the index of a keyword in the VICAR header. Raises an error
         if the keyword is not found.
@@ -632,19 +580,17 @@ class VicarImage():
             # Test this pattern
             k = self.table[i][0]
             test = pattern.match(k)
-            if test is None:
-                continue
+            if test is None: continue
 
             # If it matches the entire keyword...
             if test.end() == len(k):
                 found = found + 1
 
                 # And the occurrence is right, we're done
-                if found == occurrence:
-                    return i
+                if found == occurrence: return i
 
             # Otherwise, try again
-
+        
         # No match was found
 
         # If the keyword was never matched, raise KeyError
@@ -657,10 +603,8 @@ class VicarImage():
 
         # Otherwise, it's a value error
         message = "Missing keyword " + keyword
-        if occurrence != 0:
-            message = message + "[" + str(occurrence) + "]"
-        if start != 0:
-            message = message + " starting at index " + str(start)
+        if occurrence != 0: message = message + "[" + str(occurrence) + "]"
+        if start != 0: message = message + " starting at index " + str(start)
 
         raise ValueError(message)
 
@@ -702,16 +646,15 @@ class VicarImage():
 
         # Raise an error if necessary
         immutable = self.table[index][0] in VicarImage.IMMUTABLE_KEYWORDS
-        if immutable and not override:
-            if ignore:
-                return
-            else:
-                raise VicarError("The value of keyword " + self.table[index][0]
-                               + " cannot be changed by the user")
+        if immutable and (not override) and (not ignore):
+            raise VicarError("The value of keyword " + self.table[index][0]
+                           + " cannot be changed by the user")
+
+        # Ignore the error if necessary
+        if immutable and ignore: return
 
         # Convert tuples to lists
-        if isinstance(value, tuple):
-            value = list(value)
+        if isinstance(value, tuple): value = list(value)
 
         # Replace the value
         self.table[index][1] = value
@@ -739,14 +682,11 @@ class VicarImage():
         # True enables the deletion of immutable keywords.
 
         # If stop value is unspecified, just delete one keyword
-        if stop is None:
-            stop = index + 1
+        if stop is None: stop = index + 1
 
         # Convert negative indices to positive and get the count
-        if index < 0:
-            index = len(self.table) + index
-        if stop <= 0:
-            stop  = len(self.table) + stop
+        if index < 0: index = len(self.table) + index
+        if stop <= 0: stop  = len(self.table) + stop
         count = stop - index
 
         # On override, delete blindly
@@ -790,21 +730,18 @@ class VicarImage():
         # True enables the copying of immutable keywords.
 
         # If stop value is unspecified, just copy one keyword
-        if stop is None:
-            stop = index + 1
+        if stop is None: stop = index + 1
 
         # Convert negative indices to positive and get the count
-        if index < 0:
-            index = len(self.table) + index
-        if stop <= 0:
-            stop = len(self.table) + stop
+        if index < 0: index = len(self.table) + index
+        if stop <= 0: stop  = len(self.table) + stop
         count = stop - index
 
         # On ignore == False, check every keyword first
         if not ignore and not override:
             for i in range(index, count):
                 keyword = self.table[i][0]
-                if keyword in VicarImage.IMMUTABLE_KEYWORDS:
+                if keyword in VicarImage.IMMUTABLE_KEYWORDS: 
                     raise VicarError("Keyword " + keyword +
                                      " cannot be modified")
 
@@ -817,8 +754,7 @@ class VicarImage():
             immutable = (keyword in VicarImage.IMMUTABLE_KEYWORDS)
 
             # Don't change immutable objects unless specifically requested
-            if immutable and not override:
-                continue
+            if immutable and not override: continue
 
             # Replace the values of required keywords
             if required:
@@ -851,8 +787,7 @@ class VicarImage():
                                + " cannot be inserted")
 
         # Convert tuples to lists
-        if isinstance(value, tuple):
-            value = list(value)
+        if isinstance(value, tuple): value = list(value)
 
         # Insert the keyword at the specified location
         if index != -1:
@@ -881,8 +816,7 @@ class VicarImage():
                                + " cannot be appended")
 
         # Convert tuples to lists
-        if isinstance(value, tuple):
-            value = list(value)
+        if isinstance(value, tuple): value = list(value)
 
         # Append keyword and set value
         self.table.append([keyword.upper(), value])
@@ -943,12 +877,10 @@ class VicarImage():
         i = self.find_keyword(keyword, occurrence, start)
 
         # Return the value if found
-        if i >= 0:
-            return self.table[i][1]
+        if i >= 0: return self.table[i][1]
 
         # Return the default if available
-        if default is not None:
-            return default
+        if default is not None: return default
 
         # Otherwise raise the normal exception
         i = self.keyword_index(keyword, occurrence, start)
@@ -969,8 +901,7 @@ class VicarImage():
         i = -1           # start at the beginning
         while True:
             i = self.find_keyword(keyword, occurrence=0, start=i+1)
-            if i < 0:
-                return results
+            if i < 0: return results
 
             results.append(self.table[i][1])
 
@@ -1022,8 +953,7 @@ class VicarImage():
         def _value_string(value):
 
             # Anything but list or tuple
-            if not isinstance(value, (list,tuple)):
-                return _value_string1(value)
+            if not isinstance(value, (list,tuple)): return _value_string1(value)
 
             # Add the individual elements to a list
             result = ["("]
@@ -1041,20 +971,15 @@ class VicarImage():
         ### deal with lists
         def _value_string1(value):
 
-            if isinstance(value, str):
-                return "'" + value + "'"
-            if isinstance(value, dec.Decimal):
-                return str(value)
-            if isinstance(value, numbers.Integral):
-                return str(value)
-            if isinstance(value, numbers.Real):
-                return repr(value)
+            if isinstance(value, str): return "'" + value + "'"
+            if isinstance(value, dec.Decimal): return str(value)
+            if isinstance(value, numbers.Integral): return str(value)
+            if isinstance(value, numbers.Real): return repr(value)
 
             raise VicarError("Illegal value type for a VICAR keyword: " +
                              str(value) + " (" + str(type(value)) + ")")
 
         ### Actual method begins here
-
         # Prepare the header string as a list of short strings, then join them
 
         # Initialize the list of strings with the LBLSIZE keyword
@@ -1245,7 +1170,7 @@ class VicarImage():
         except KeyError:
             vicar_HOST = sys.platform.upper()
 
-        # Update the required VICAR keywords
+        # Fill in the required VICAR keywords
         self.set_value("LBLSIZE" , 0            , override=True)
         self.set_value("FORMAT"  , vicar_FORMAT , override=True)
         self.set_value("TYPE"    , "IMAGE"      , override=True)
@@ -1260,10 +1185,16 @@ class VicarImage():
         self.set_value("N1"      , vicar_N1     , override=True)
         self.set_value("N2"      , vicar_N2     , override=True)
         self.set_value("N3"      , vicar_N3     , override=True)
-        self.set_value("N4"      , 0            , override=True)
+        self.set_value("N4"      , 1            , override=True)
+        self.set_value("NBB"     , 0            , override=True)
+        self.set_value("NLB"     , 0            , override=True)
         self.set_value("HOST"    , vicar_HOST   , override=True)
         self.set_value("INTFMT"  , vicar_INTFMT , override=True)
         self.set_value("REALFMT" , vicar_REALFMT, override=True)
+        self.set_value("BHOST"   , vicar_HOST   , override=True)
+        self.set_value("BINTFMT" , vicar_INTFMT , override=True)
+        self.set_value("BREALFMT", vicar_REALFMT, override=True)
+        self.set_value("BLTYPE"  , ""           , override=True)
 
         return
 
@@ -1290,7 +1221,7 @@ class VicarImage():
         Inputs:
             header = the VICAR header string.
 
-        Side effects: the table field of the VicarImage object gets updated.
+        Side effects: the table field of the VIcarImage object gets replaced.
         """
 
         ### Internal method to parse one item starting at index i
@@ -1318,8 +1249,7 @@ class VicarImage():
                             value = int(header[i:j])
                         break
 
-                    if header[j] in ".Ee":
-                        is_float = True
+                    if header[j] in ".Ee": is_float = True
                     j += 1
 
             return (value, j)
@@ -1333,35 +1263,28 @@ class VicarImage():
 
                 value.append(nextval)
 
-                while header[i] == " ":
-                    i +=  1
+                while header[i] == " ": i +=  1
+                if header[i] == ")": return (value, i+1)
 
-                if header[i] == ")":
-                    return (value, i+1)
+                if header[i] == ",": i += 1
 
-                if header[i] == ",":
-                    i += 1
-
-        ### Execution begins here
-
+        ### Actual method begins here
         ikey = 0
+        self.table = []
         while True:
 
             # Extract the keyword
             jkey = header[ikey:].find("=") + ikey
-            if jkey < ikey:
-                break
+            if jkey < ikey: return
 
             keyword = header[ikey:jkey].strip()
 
             # non-ASCII text indicates end of header
-            if keyword[0] < " " or keyword[0] > "~":
-                return
+            if keyword[0] < " " or keyword[0] > "~": return
 
             # Look for beginning of value
             ivalue = jkey + 1
-            while header[ivalue] == " ":
-                ivalue = ivalue + 1
+            while header[ivalue] == " ": ivalue = ivalue + 1
 
             # Interpret value
             if header[ivalue] == "(":
@@ -1369,42 +1292,8 @@ class VicarImage():
             else:
                 (value, jvalue) = _parse_single(ivalue)
 
-            # Update a required keyword or else append
-            if keyword in self.REQUIRED_KEYWORDS:
-                index = self.keyword_index(keyword)
-                self.table[index][1] = value
-            else:
-                self.table.append([keyword, value])
-
+            self.table.append([keyword, value])
             ikey = jvalue
-
-        # Update required parameters as needed
-        if not self.get_value("ORG"):
-            self.set_value("ORG", "BSQ")
-
-        if not self.get_value("INTFMT"):
-            self.set_value("INTFMT", "LOW", override=True)
-
-        if not self.get_value("REALFMT"):
-            self.set_value("REALFMT", "VAX", override=True)
-
-        if not self.get_value("BINTFMT"):
-            self.set_value("BINTFMT", self.get_value("INTFMT"), override=True)
-
-        if not self.get_value("BREALFMT"):
-            self.set_value("BREALFMT", self.get_value("REALFMT"), override=True)
-
-        if not self.get_value("HOST"):
-            realfmt = self.get_value("REALFMT")
-            if realfmt == "VAX":
-                self.set_value("HOST", "VAX-VMS", override=True)
-            elif realfmt == "RIEEE":
-                self.set_value("HOST", "X86-64", override=True)
-            else:
-                self.set_value("HOST", "SUN_4", override=True)
-
-        if not self.get_value("BHOST"):
-            self.set_value("BHOST",  self.get_value("HOST"), override=True)
 
 ################################################################################
 # VicarError class
@@ -1421,31 +1310,31 @@ class VicarError(Exception):
 # def test():
 #         filename = sys.argv[1]
 #         vic = VicarImage.from_file(filename)
-#
+# 
 #         print vic.get_value("LBLSIZE")
 #         print vic.get_value("FORMAT")
 #         print vic.get_value("DAT_TIM",occurrence=0)
 #         print vic.get_value("DAT_TIM",occurrence=1)
 #         print vic.get_value("FOOBAR",default=55)
 #         print vic.get_value(".*",default=55)
-#
+# 
 # #       print "set RECSIZE..."
 # #       vic.set_value("RecsizE", 999)
-#
+# 
 #         print "set HOST..."
 #         vic.set_value("HOST", "Foobar")
-#
+# 
 # #       print "delete HOST..."
 # #       vic.delete_keyword("Host")
-#
+# 
 #         a = vic.get_2d_array()
 #         print a
 #         print a.shape, a.min(), a.max()
-#
+# 
 #         a = vic.get_3d_array()
 #         print a
 #         print a.ndim, a.shape, a.min(), a.max()
-#
+# 
 # #        print vic.get_header()
 # #        print len(vic.get_header())
 # #
@@ -1455,16 +1344,16 @@ class VicarError(Exception):
 # #        print len(vic.get_header())
 # #
 # #        vic.delete_by_index(0,0,ignore=True)
-#
+# 
 #         print vic.get_header()
 #         print len(vic.get_header())
-#
+# 
 #         test = VicarImage.from_array(a)
 #         print test.get_header().strip()
-#
+# 
 #         vic.copy_by_index(test, 0, 0, ignore=True)
 #         print test.get_header().strip()
-#
+# 
 # # Execute the main test progam if this is not imported
 # if __name__ == "__main__": test()
-#
+# 
