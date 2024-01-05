@@ -3,6 +3,7 @@ import re
 import sys
 import decimal as dec
 import numbers
+import traceback
 
 # 对于 CISSCAL/calib/xpsf/ 下的VICAR文件，有些“basic VICAR file properties”是不合法甚至缺失的，因此不能使用 vicar.py
 
@@ -1281,14 +1282,8 @@ class VicarError(Exception):
     pass
     # Nothing else is needed
 
-# 查看 CISSCAL/calib/xpsf/ 下NAC_CL1_CL2的两个XPSF ↓
-# if __name__=='__main__':
-if False:
-    import matplotlib.pyplot as plt
-
-    vic = VicarImage.from_file('D:/Program Files/CISSCAL/calib/xpsf/xpsf_nac_cl1_cl2_core.img')
-    xpsf = np.copy(vic.data_2d)
-    xpsf = np.log(xpsf)
-    # plt.imshow(xpsf, cmap='gray')
-    plt.imsave(fname='D:/Program Files/CISSCAL/calib/xpsf/xpsf_nac_cl1_cl2_core'+'_log.png', arr=xpsf, cmap='gray')
-# 查看 CISSCAL/calib/xpsf/ 下NAC_CL1_CL2的两个XPSF ↑
+def read_cisscal_psf_array(vicar_path:str):
+    try:
+        return VicarImage.from_file(vicar_path).data_2d.astype('float64')
+    except:
+        return 'read_cisscal_psf_array(): fail to read CISSCAL PSF from '+vicar_path+' because: '+traceback.format_exc()
