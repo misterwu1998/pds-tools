@@ -7,3 +7,8 @@ cspice1/_cspice_swig.so
 .project
 .pydevproject
 **/.vscode
+
+# python setup yieldings
+**/build/
+**/dist/
+**/*.egg-info/
