@@ -1283,7 +1283,10 @@ class VicarError(Exception):
     # Nothing else is needed
 
 def read_cisscal_psf_array(vicar_path:str):
+    '''
+    return errstr or CISSCAL PSF array with dtype=np.float64
+    '''
     try:
         return VicarImage.from_file(vicar_path).data_2d.astype('float64')
     except:
-        return 'read_cisscal_psf_array(): fail to read CISSCAL PSF from '+vicar_path+' because: '+traceback.format_exc()
+        return 'read_cisscal_psf_array(): fail to read CISSCAL PSF from {0} because: {1}'.format(vicar_path,traceback.format_exc())
