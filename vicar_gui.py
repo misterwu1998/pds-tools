@@ -77,6 +77,8 @@ class VicarGUI(QtWidgets.QWidget):
             plt.imshow(np.log(self.image), cmap='gray')
         else:
             plt.imshow(self.image, cmap='gray')
+        plt.xlabel('Sample')
+        plt.ylabel('Line')
         plt.tight_layout()
         plt.show()
 
